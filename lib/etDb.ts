@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import {
+  Segment,
   Todo,
   HistoryRecord,
   TaskTemplate,
@@ -8,6 +9,12 @@ import {
 } from "../app/types";
 
 // --- DB Row Types ---
+type DbSegmentRow = {
+  id: string;
+  name: string;
+  sort_order: number;
+};
+
 type DbTodoRow = {
   id: string;
   title: string;
@@ -18,6 +25,8 @@ type DbTodoRow = {
   parent_checked_at: number | null;
   locked: boolean;
   sort_order: number;
+  segment_id: string | null;
+  target_date: string | null;
 };
 
 type DbHistoryRow = {
@@ -35,6 +44,7 @@ type DbTemplateRow = {
   days_of_week: number[];
   locked: boolean;
   sort_order: number;
+  segment_id: string | null;
 };
 
 type DbAllowanceRow = {
@@ -50,6 +60,13 @@ type DbSettingRow = {
 };
 
 // --- Mappers ---
+function mapDbSegment(row: DbSegmentRow): Segment {
+  return {
+    id: row.id,
+    name: row.name,
+  };
+}
+
 function mapDbTodo(row: DbTodoRow): Todo {
   return {
     id: row.id,
@@ -61,6 +78,8 @@ function mapDbTodo(row: DbTodoRow): Todo {
     parentCheckedAt:
       row.parent_checked_at !== null ? Number(row.parent_checked_at) : undefined,
     locked: row.locked,
+    segmentId: row.segment_id ?? undefined,
+    targetDate: row.target_date ?? undefined,
   };
 }
 
@@ -82,6 +101,7 @@ function mapDbTemplate(row: DbTemplateRow): TaskTemplate {
     title: row.title,
     daysOfWeek: Array.isArray(row.days_of_week) ? row.days_of_week : [],
     locked: row.locked,
+    segmentId: row.segment_id ?? undefined,
   };
 }
 
@@ -91,6 +111,7 @@ export type AppliedTemplatesState = {
 };
 
 export type FetchedEtData = {
+  segments: Segment[];
   todos: Todo[];
   history: HistoryRecord[];
   templates: TaskTemplate[];
@@ -106,26 +127,37 @@ export type FetchedEtData = {
 export async function fetchAllEtData(): Promise<FetchedEtData | null> {
   if (!supabase) return null;
 
-  const [todosRes, historyRes, templatesRes, allowancesRes, settingsRes] =
-    await Promise.all([
-      supabase
-        .from("et_todos")
-        .select("*")
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("et_history")
-        .select("*")
-        .order("completed_at", { ascending: false }),
-      supabase
-        .from("et_templates")
-        .select("*")
-        .order("sort_order", { ascending: true }),
-      supabase.from("et_weekly_allowances").select("*"),
-      supabase.from("et_settings").select("*"),
-    ]);
+  const [
+    segmentsRes,
+    todosRes,
+    historyRes,
+    templatesRes,
+    allowancesRes,
+    settingsRes,
+  ] = await Promise.all([
+    supabase
+      .from("et_segments")
+      .select("*")
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("et_todos")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("et_history")
+      .select("*")
+      .order("completed_at", { ascending: false }),
+    supabase
+      .from("et_templates")
+      .select("*")
+      .order("sort_order", { ascending: true }),
+    supabase.from("et_weekly_allowances").select("*"),
+    supabase.from("et_settings").select("*"),
+  ]);
 
   if (
+    segmentsRes.error ||
     todosRes.error ||
     historyRes.error ||
     templatesRes.error ||
@@ -133,6 +165,7 @@ export async function fetchAllEtData(): Promise<FetchedEtData | null> {
     settingsRes.error
   ) {
     console.error("Supabase 読み込みエラー:", {
+      segments: segmentsRes.error,
       todos: todosRes.error,
       history: historyRes.error,
       templates: templatesRes.error,
@@ -142,6 +175,7 @@ export async function fetchAllEtData(): Promise<FetchedEtData | null> {
     return null;
   }
 
+  const segments = ((segmentsRes.data ?? []) as DbSegmentRow[]).map(mapDbSegment);
   const todos = ((todosRes.data ?? []) as DbTodoRow[]).map(mapDbTodo);
   const history = ((historyRes.data ?? []) as DbHistoryRow[]).map(mapDbHistory);
   const templates = ((templatesRes.data ?? []) as DbTemplateRow[]).map(mapDbTemplate);
@@ -177,6 +211,7 @@ export async function fetchAllEtData(): Promise<FetchedEtData | null> {
   }
 
   return {
+    segments,
     todos,
     history,
     templates,
@@ -185,6 +220,30 @@ export async function fetchAllEtData(): Promise<FetchedEtData | null> {
     appliedTemplates,
     migratedFromLocal,
   };
+}
+
+// --- Segments ---
+export async function upsertSegmentsList(segments: Segment[]): Promise<void> {
+  if (!supabase || segments.length === 0) return;
+  const rows: DbSegmentRow[] = segments.map((s, index) => ({
+    id: s.id,
+    name: s.name,
+    sort_order: index,
+  }));
+  const { error } = await supabase.from("et_segments").upsert(rows);
+  if (error) console.error("et_segments upsert error:", error);
+}
+
+export async function updateSegmentRow(id: string, name: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("et_segments").update({ name }).eq("id", id);
+  if (error) console.error("et_segments update error:", error);
+}
+
+export async function deleteSegmentRow(id: string): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.from("et_segments").delete().eq("id", id);
+  if (error) console.error("et_segments delete error:", error);
 }
 
 // --- Todos ---
@@ -200,6 +259,8 @@ export async function upsertTodosList(todos: Todo[]): Promise<void> {
     parent_checked_at: t.parentCheckedAt ?? null,
     locked: Boolean(t.locked),
     sort_order: index,
+    segment_id: t.segmentId ?? null,
+    target_date: t.targetDate ?? null,
   }));
 
   const { error } = await supabase.from("et_todos").upsert(rows);
@@ -215,6 +276,8 @@ export async function updateTodoRow(
     parent_checked: boolean;
     parent_checked_at: number | null;
     locked: boolean;
+    segment_id: string | null;
+    target_date: string | null;
   }>
 ): Promise<void> {
   if (!supabase) return;
@@ -272,6 +335,7 @@ export async function upsertTemplatesList(templates: TaskTemplate[]): Promise<vo
     days_of_week: tpl.daysOfWeek,
     locked: Boolean(tpl.locked),
     sort_order: index,
+    segment_id: tpl.segmentId ?? null,
   }));
 
   const { error } = await supabase.from("et_templates").upsert(rows);
@@ -280,7 +344,7 @@ export async function upsertTemplatesList(templates: TaskTemplate[]): Promise<vo
 
 export async function updateTemplateRow(
   id: string,
-  patch: Partial<{ title: string; locked: boolean }>
+  patch: Partial<{ title: string; locked: boolean; segment_id: string | null }>
 ): Promise<void> {
   if (!supabase) return;
   const { error } = await supabase.from("et_templates").update(patch).eq("id", id);

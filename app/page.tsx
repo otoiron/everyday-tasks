@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, KeyboardEvent } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, KeyboardEvent } from "react";
 import {
   Box,
   Button,
@@ -23,6 +23,7 @@ import {
   Lock,
 } from "@phosphor-icons/react";
 import {
+  Segment,
   Todo,
   HistoryRecord,
   TaskTemplate,
@@ -33,8 +34,12 @@ import { formatDateKey, getWeekKey } from "./utils/date";
 import { reorderList, useDragReorder } from "./hooks/useDragReorder";
 import { HistoryView } from "./components/HistoryView";
 import { AdminView } from "./components/AdminView";
+import { ScheduleView } from "./components/ScheduleView";
 import {
   fetchAllEtData,
+  upsertSegmentsList,
+  updateSegmentRow,
+  deleteSegmentRow,
   upsertTodosList,
   updateTodoRow,
   deleteTodoRows,
@@ -57,7 +62,7 @@ const APPLIED_TEMPLATES_STORAGE_KEY = "kids-todo-app-applied-templates-v1";
 const ALLOWANCES_STORAGE_KEY = "kids-todo-app-allowances-v1";
 const DEFAULT_ADMIN_PIN = "1234";
 
-type ActiveTab = "tasks" | "history" | "admin";
+type ActiveTab = "tasks" | "schedule" | "history" | "admin";
 
 type DeleteConfirmTarget =
   | { type: "single"; todo: Todo }
@@ -123,6 +128,7 @@ function readLocalBackup() {
 }
 
 export default function HomePage() {
+  const [segments, setSegments] = useState<Segment[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
@@ -131,10 +137,13 @@ export default function HomePage() {
   const [appliedTemplates, setAppliedTemplates] = useState<AppliedTemplatesState | null>(null);
 
   const [inputValue, setInputValue] = useState("");
+  const [inputSegmentId, setInputSegmentId] = useState<string>("");
+  const [filterSegmentId, setFilterSegmentId] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<ActiveTab>("tasks");
   const [deleteTarget, setDeleteTarget] = useState<DeleteConfirmTarget>(null);
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTodoTitle, setEditingTodoTitle] = useState("");
+  const [editingTodoSegmentId, setEditingTodoSegmentId] = useState<string>("");
   const [completingIds, setCompletingIds] = useState<string[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -248,6 +257,7 @@ export default function HomePage() {
         await deleteTodoRows(outdatedCompletedIds);
       }
 
+      setSegments(dbData.segments);
       setTodos(currentTodos);
       setHistory(currentHistory);
       setTemplates(currentTemplates);
@@ -308,7 +318,7 @@ export default function HomePage() {
     void upsertSettingRow("admin_pin", newPin);
   };
 
-  // タスクの追加
+  // タスクの追加（当日用）
   const handleAddTodo = () => {
     const trimmed = inputValue.trim();
     if (!trimmed) return;
@@ -318,12 +328,73 @@ export default function HomePage() {
       title: trimmed,
       completed: false,
       createdAt: Date.now(),
+      segmentId: inputSegmentId || undefined,
     };
 
     const nextTodos = [newTodo, ...todos];
     setTodos(nextTodos);
     setInputValue("");
     void upsertTodosList(nextTodos);
+  };
+
+  // 未来の予定タスクを追加
+  const handleAddScheduledTodo = (
+    title: string,
+    targetDate: string,
+    segmentId?: string,
+    locked?: boolean
+  ) => {
+    const newTodo: Todo = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      completed: false,
+      createdAt: Date.now(),
+      targetDate,
+      segmentId,
+      locked: Boolean(locked),
+    };
+    const nextTodos = [newTodo, ...todos];
+    setTodos(nextTodos);
+    void upsertTodosList(nextTodos);
+  };
+
+  // 予定タスクを「今日やること」へ移動
+  const handleMoveScheduledToToday = (id: string) => {
+    setTodos((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, targetDate: undefined } : t))
+    );
+    void updateTodoRow(id, { target_date: null });
+  };
+
+  // セグメントの追加・編集・削除・並び替え
+  const handleAddSegment = (name: string) => {
+    const newSegment: Segment = {
+      id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name,
+    };
+    const nextSegments = [...segments, newSegment];
+    setSegments(nextSegments);
+    void upsertSegmentsList(nextSegments);
+  };
+
+  const handleEditSegment = (id: string, name: string) => {
+    setSegments((prev) =>
+      prev.map((seg) => (seg.id === id ? { ...seg, name } : seg))
+    );
+    void updateSegmentRow(id, name);
+  };
+
+  const handleDeleteSegment = (id: string) => {
+    setSegments((prev) => prev.filter((seg) => seg.id !== id));
+    if (filterSegmentId === id) setFilterSegmentId("all");
+    if (inputSegmentId === id) setInputSegmentId("");
+    void deleteSegmentRow(id);
+  };
+
+  const handleReorderSegments = (fromIndex: number, toIndex: number) => {
+    const nextSegments = reorderList(segments, fromIndex, toIndex);
+    setSegments(nextSegments);
+    void upsertSegmentsList(nextSegments);
   };
 
   // Enterキーでの追加（日本語変換中のEnterは無視）
@@ -480,13 +551,15 @@ export default function HomePage() {
   const handleAddTemplate = (
     title: string,
     daysOfWeek: number[],
-    locked: boolean
+    locked: boolean,
+    segmentId?: string
   ) => {
     const newTemplate: TaskTemplate = {
       id: `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       title,
       daysOfWeek,
       locked,
+      segmentId,
     };
     const nextTemplates = [...templates, newTemplate];
     setTemplates(nextTemplates);
@@ -508,6 +581,7 @@ export default function HomePage() {
   const handleStartEditTodo = (todo: Todo) => {
     setEditingTodoId(todo.id);
     setEditingTodoTitle(todo.title);
+    setEditingTodoSegmentId(todo.segmentId ?? "");
   };
 
   // タスク名の編集保存
@@ -517,9 +591,12 @@ export default function HomePage() {
     if (!trimmed) return;
 
     const targetId = editingTodoId;
+    const nextSegmentId = editingTodoSegmentId || undefined;
     setTodos((prev) =>
       prev.map((todo) =>
-        todo.id === targetId ? { ...todo, title: trimmed } : todo
+        todo.id === targetId
+          ? { ...todo, title: trimmed, segmentId: nextSegmentId }
+          : todo
       )
     );
     setHistory((prev) =>
@@ -527,17 +604,22 @@ export default function HomePage() {
         record.id === targetId ? { ...record, title: trimmed } : record
       )
     );
-    void updateTodoRow(targetId, { title: trimmed });
+    void updateTodoRow(targetId, {
+      title: trimmed,
+      segment_id: editingTodoSegmentId || null,
+    });
     void updateHistoryRow(targetId, { title: trimmed });
 
     setEditingTodoId(null);
     setEditingTodoTitle("");
+    setEditingTodoSegmentId("");
   };
 
   // タスク名の編集キャンセル
   const handleCancelEditTodo = () => {
     setEditingTodoId(null);
     setEditingTodoTitle("");
+    setEditingTodoSegmentId("");
   };
 
   // テンプレートの削除
@@ -547,13 +629,18 @@ export default function HomePage() {
   };
 
   // テンプレート名の編集
-  const handleEditTemplate = (id: string, newTitle: string) => {
+  const handleEditTemplate = (id: string, newTitle: string, segmentId?: string) => {
     const trimmed = newTitle.trim();
     if (!trimmed) return;
     setTemplates((prev) =>
-      prev.map((tpl) => (tpl.id === id ? { ...tpl, title: trimmed } : tpl))
+      prev.map((tpl) =>
+        tpl.id === id ? { ...tpl, title: trimmed, segmentId } : tpl
+      )
     );
-    void updateTemplateRow(id, { title: trimmed });
+    void updateTemplateRow(id, {
+      title: trimmed,
+      segment_id: segmentId || null,
+    });
   };
 
   // テンプレートの並び替え
@@ -588,6 +675,7 @@ export default function HomePage() {
       completed: false,
       createdAt: Date.now(),
       locked: Boolean(tpl.locked),
+      segmentId: tpl.segmentId,
     };
     const nextTodos = [newTodo, ...todos];
     setTodos(nextTodos);
@@ -597,7 +685,12 @@ export default function HomePage() {
   // 今日の曜日に一致するテンプレートを手動でまとめて追加（すでにリストにあるタイトルはスキップ）
   const handleApplyTodayTemplates = (): number => {
     const todayDay = new Date().getDay();
-    const existingTitles = new Set(todos.map((t) => t.title));
+    const todayDateKey = formatDateKey(new Date());
+    const existingTitles = new Set(
+      todos
+        .filter((t) => !t.targetDate || t.targetDate <= todayDateKey)
+        .map((t) => t.title)
+    );
 
     const templatesToApply = templates.filter(
       (tpl) => tpl.daysOfWeek.includes(todayDay) && !existingTitles.has(tpl.title)
@@ -613,6 +706,7 @@ export default function HomePage() {
       completed: false,
       createdAt: Date.now(),
       locked: Boolean(tpl.locked),
+      segmentId: tpl.segmentId,
     }));
 
     const nextTodos = [...newTodos, ...todos];
@@ -622,8 +716,28 @@ export default function HomePage() {
     return templatesToApply.length;
   };
 
-  const activeTodos = todos.filter((todo) => !todo.completed);
-  const completedTodos = todos.filter((todo) => todo.completed);
+  const todayKey = formatDateKey(new Date());
+  const segmentMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const seg of segments) {
+      map.set(seg.id, seg.name);
+    }
+    return map;
+  }, [segments]);
+
+  const activeTodos = todos.filter(
+    (todo) => !todo.completed && (!todo.targetDate || todo.targetDate <= todayKey)
+  );
+  const visibleActiveTodos =
+    filterSegmentId === "all"
+      ? activeTodos
+      : activeTodos.filter((todo) => todo.segmentId === filterSegmentId);
+  const completedTodos = todos.filter(
+    (todo) => todo.completed && (!todo.targetDate || todo.targetDate <= todayKey)
+  );
+  const scheduledTodosCount = todos.filter(
+    (todo) => !todo.completed && todo.targetDate && todo.targetDate > todayKey
+  ).length;
   const currentWeekEntry = isMounted ? weeklyAllowances[getWeekKey(0)] : undefined;
   const currentWeekAllowance = currentWeekEntry?.amount ?? 0;
   const currentWeekAllowancePaid = Boolean(currentWeekEntry?.paid);
@@ -710,12 +824,12 @@ export default function HomePage() {
 
           {/* 画面切り替えタブ（管理者画面以外のときに表示） */}
           {activeTab !== "admin" && (
-            <HStack gap={3}>
+            <HStack gap={2}>
               <Button
                 onClick={() => setActiveTab("tasks")}
                 flex={1}
-                h="52px"
-                fontSize={{ base: "md", md: "lg" }}
+                h="50px"
+                fontSize={{ base: "sm", md: "md" }}
                 fontWeight="bold"
                 borderRadius="xl"
                 borderWidth="2px"
@@ -729,10 +843,27 @@ export default function HomePage() {
                 今日のやること
               </Button>
               <Button
+                onClick={() => setActiveTab("schedule")}
+                flex={1}
+                h="50px"
+                fontSize={{ base: "sm", md: "md" }}
+                fontWeight="bold"
+                borderRadius="xl"
+                borderWidth="2px"
+                borderColor={activeTab === "schedule" ? "#4299E1" : "#CFE2FF"}
+                bg={activeTab === "schedule" ? "#63B3ED" : "white"}
+                color={activeTab === "schedule" ? "white" : "#2B6CB0"}
+                _hover={{
+                  bg: activeTab === "schedule" ? "#4299E1" : "#EBF8FF",
+                }}
+              >
+                予定{isMounted && scheduledTodosCount > 0 ? `(${scheduledTodosCount})` : ""}
+              </Button>
+              <Button
                 onClick={() => setActiveTab("history")}
                 flex={1}
-                h="52px"
-                fontSize={{ base: "md", md: "lg" }}
+                h="50px"
+                fontSize={{ base: "sm", md: "md" }}
                 fontWeight="bold"
                 borderRadius="xl"
                 borderWidth="2px"
@@ -750,6 +881,7 @@ export default function HomePage() {
 
           {activeTab === "admin" ? (
             <AdminView
+              segments={segments}
               todos={todos}
               history={history}
               templates={templates}
@@ -759,6 +891,10 @@ export default function HomePage() {
               onApproveTask={handleApproveTask}
               onUnapproveTask={handleUnapproveTask}
               onRejectToActive={handleRejectToActive}
+              onAddSegment={handleAddSegment}
+              onEditSegment={handleEditSegment}
+              onDeleteSegment={handleDeleteSegment}
+              onReorderSegments={handleReorderSegments}
               onAddTemplate={handleAddTemplate}
               onDeleteTemplate={handleDeleteTemplate}
               onEditTemplate={handleEditTemplate}
@@ -768,6 +904,30 @@ export default function HomePage() {
               onUpdateWeeklyAllowance={handleUpdateWeeklyAllowance}
               onExit={() => setActiveTab("tasks")}
             />
+          ) : activeTab === "schedule" ? (
+            isMounted ? (
+              <ScheduleView
+                todos={todos}
+                segments={segments}
+                templates={templates}
+                onAddScheduledTodo={handleAddScheduledTodo}
+                onMoveToToday={handleMoveScheduledToToday}
+                onDeleteScheduledTodo={(todo) =>
+                  setDeleteTarget({ type: "single", todo })
+                }
+              />
+            ) : (
+              <Box
+                bg="white"
+                p={8}
+                borderRadius="2xl"
+                borderWidth="2px"
+                borderColor="#CFE2FF"
+                textAlign="center"
+              >
+                <Text color="#718096">読み込み中...</Text>
+              </Box>
+            )
           ) : activeTab === "history" ? (
             isMounted ? (
               <HistoryView history={history} weeklyAllowances={weeklyAllowances} />
@@ -840,6 +1000,38 @@ export default function HomePage() {
                     追加！
                   </Button>
                 </Flex>
+
+                {isMounted && segments.length > 0 && (
+                  <HStack mt={3} gap={1.5} flexWrap="wrap">
+                    <Button
+                      onClick={() => setInputSegmentId("")}
+                      size="xs"
+                      h="30px"
+                      px={3}
+                      borderRadius="full"
+                      bg={inputSegmentId === "" ? "#4A5568" : "#EDF2F7"}
+                      color={inputSegmentId === "" ? "white" : "#4A5568"}
+                      fontWeight="bold"
+                    >
+                      指定なし
+                    </Button>
+                    {segments.map((seg) => (
+                      <Button
+                        key={seg.id}
+                        onClick={() => setInputSegmentId(seg.id)}
+                        size="xs"
+                        h="30px"
+                        px={3}
+                        borderRadius="full"
+                        bg={inputSegmentId === seg.id ? "#4299E1" : "#EBF8FF"}
+                        color={inputSegmentId === seg.id ? "white" : "#2B6CB0"}
+                        fontWeight="bold"
+                      >
+                        {seg.name}
+                      </Button>
+                    ))}
+                  </HStack>
+                )}
 
                 {isMounted && templates.length > 0 && (
                   <Box mt={3} pt={3} borderTopWidth="1px" borderColor="#EDF2F7">
@@ -920,9 +1112,46 @@ export default function HomePage() {
                 borderColor="#CFE2FF"
                 boxShadow="0 4px 12px rgba(144, 205, 244, 0.15)"
               >
-                <Heading as="h2" fontSize="xl" color="#2D3748" mb={4}>
+                <Heading as="h2" fontSize="xl" color="#2D3748" mb={3}>
                   これからやること
                 </Heading>
+
+                {isMounted && segments.length > 0 && activeTodos.length > 0 && (
+                  <HStack mb={4} gap={1.5} flexWrap="wrap">
+                    <Button
+                      onClick={() => setFilterSegmentId("all")}
+                      size="xs"
+                      h="32px"
+                      px={3}
+                      borderRadius="full"
+                      bg={filterSegmentId === "all" ? "#2B6CB0" : "#EDF2F7"}
+                      color={filterSegmentId === "all" ? "white" : "#4A5568"}
+                      fontWeight="bold"
+                    >
+                      すべて（{activeTodos.length}）
+                    </Button>
+                    {segments.map((seg) => {
+                      const count = activeTodos.filter(
+                        (t) => t.segmentId === seg.id
+                      ).length;
+                      return (
+                        <Button
+                          key={seg.id}
+                          onClick={() => setFilterSegmentId(seg.id)}
+                          size="xs"
+                          h="32px"
+                          px={3}
+                          borderRadius="full"
+                          bg={filterSegmentId === seg.id ? "#4299E1" : "#EBF8FF"}
+                          color={filterSegmentId === seg.id ? "white" : "#2B6CB0"}
+                          fontWeight="bold"
+                        >
+                          {seg.name}（{count}）
+                        </Button>
+                      );
+                    })}
+                  </HStack>
+                )}
 
                 {!isMounted ? (
                   <Box
@@ -938,7 +1167,7 @@ export default function HomePage() {
                       読み込み中...
                     </Text>
                   </Box>
-                ) : activeTodos.length === 0 ? (
+                ) : visibleActiveTodos.length === 0 ? (
                   <Box
                     bg="#F7FAFC"
                     borderRadius="xl"
@@ -949,19 +1178,25 @@ export default function HomePage() {
                     borderColor="#CBD5E0"
                   >
                     <Text fontSize="lg" color="#4A5568" fontWeight="medium">
-                      {completedTodos.length > 0
+                      {activeTodos.length > 0
+                        ? "このグループのやることはないよ！"
+                        : completedTodos.length > 0
                         ? "全部終わったよ！すごいね！"
                         : "やることを追加してみよう！"}
                     </Text>
                   </Box>
                 ) : (
                   <VStack ref={activeListRef} gap={0} align="stretch">
-                    {activeTodos.map((todo, index) => {
+                    {visibleActiveTodos.map((todo, index) => {
                       const isDragging = draggingTodoIndex === index;
                       const isEditing = editingTodoId === todo.id;
                       const isCompleting = completingIds.includes(todo.id);
-                      const isLast = index === activeTodos.length - 1;
-                      const dragStyle = getTodoItemStyle(index);
+                      const isLast = index === visibleActiveTodos.length - 1;
+                      const dragStyle =
+                        filterSegmentId === "all" ? getTodoItemStyle(index) : {};
+                      const segName = todo.segmentId
+                        ? segmentMap.get(todo.segmentId)
+                        : undefined;
                       return (
                         <Box
                           key={todo.id}
@@ -999,89 +1234,155 @@ export default function HomePage() {
                               }
                             >
                               {isEditing ? (
-                                <>
-                                  <Input
-                                    value={editingTodoTitle}
-                                    onChange={(e) => setEditingTodoTitle(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                                        handleSaveEditTodo();
-                                      } else if (e.key === "Escape") {
-                                        handleCancelEditTodo();
-                                      }
-                                    }}
-                                    autoFocus
-                                    h="44px"
-                                    fontSize={{ base: "md", md: "lg" }}
-                                    fontWeight="bold"
-                                    bg="white"
-                                    color="#2D3748"
-                                    borderWidth="2px"
-                                    borderColor="#63B3ED"
-                                    borderRadius="xl"
-                                    flex={1}
-                                  />
-                                  <HStack gap={1.5} flexShrink={0}>
-                                    <Button
-                                      onClick={handleSaveEditTodo}
-                                      disabled={!editingTodoTitle.trim()}
-                                      w="44px"
+                                <VStack gap={2.5} flex={1} w="full" align="stretch">
+                                  <Flex gap={2} align="center">
+                                    <Input
+                                      value={editingTodoTitle}
+                                      onChange={(e) => setEditingTodoTitle(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                                          handleSaveEditTodo();
+                                        } else if (e.key === "Escape") {
+                                          handleCancelEditTodo();
+                                        }
+                                      }}
+                                      autoFocus
                                       h="44px"
-                                      p={0}
+                                      fontSize={{ base: "md", md: "lg" }}
+                                      fontWeight="bold"
+                                      bg="white"
+                                      color="#2D3748"
+                                      borderWidth="2px"
+                                      borderColor="#63B3ED"
                                       borderRadius="xl"
-                                      bg="#4299E1"
-                                      color="white"
-                                      _hover={{ bg: "#3182CE" }}
-                                      aria-label="ほぞんする"
-                                      title="ほぞん"
-                                    >
-                                      <Check size={22} weight="bold" />
-                                    </Button>
-                                    <Button
-                                      onClick={handleCancelEditTodo}
-                                      w="44px"
-                                      h="44px"
-                                      p={0}
-                                      borderRadius="xl"
-                                      bg="#EDF2F7"
-                                      color="#4A5568"
-                                      _hover={{ bg: "#E2E8F0" }}
-                                      aria-label="やめる"
-                                      title="やめる"
-                                    >
-                                      <X size={20} weight="bold" />
-                                    </Button>
-                                  </HStack>
-                                </>
-                              ) : (
-                                <>
-                                  <Flex
-                                    onPointerDown={(e) => startTodoDrag(index, e)}
-                                    style={{ touchAction: "none" }}
-                                    cursor={isDragging ? "grabbing" : "grab"}
-                                    w="32px"
-                                    h="44px"
-                                    align="center"
-                                    justify="center"
-                                    borderRadius="lg"
-                                    bg="#EBF8FF"
-                                    color="#4299E1"
-                                    userSelect="none"
-                                    flexShrink={0}
-                                    title="ドラッグして じゅんばんを かえる"
-                                  >
-                                    <DotsSixVertical size={20} weight="bold" />
+                                      flex={1}
+                                    />
+                                    <HStack gap={1.5} flexShrink={0}>
+                                      <Button
+                                        onClick={handleSaveEditTodo}
+                                        disabled={!editingTodoTitle.trim()}
+                                        w="44px"
+                                        h="44px"
+                                        p={0}
+                                        borderRadius="xl"
+                                        bg="#4299E1"
+                                        color="white"
+                                        _hover={{ bg: "#3182CE" }}
+                                        aria-label="ほぞんする"
+                                        title="ほぞん"
+                                      >
+                                        <Check size={22} weight="bold" />
+                                      </Button>
+                                      <Button
+                                        onClick={handleCancelEditTodo}
+                                        w="44px"
+                                        h="44px"
+                                        p={0}
+                                        borderRadius="xl"
+                                        bg="#EDF2F7"
+                                        color="#4A5568"
+                                        _hover={{ bg: "#E2E8F0" }}
+                                        aria-label="やめる"
+                                        title="やめる"
+                                      >
+                                        <X size={20} weight="bold" />
+                                      </Button>
+                                    </HStack>
                                   </Flex>
 
-                                  <Text
-                                    fontSize={{ base: "md", md: "lg" }}
-                                    fontWeight="bold"
-                                    color="#2D3748"
-                                    wordBreak="break-word"
-                                    flex={1}
-                                  >
-                                    {todo.title}
-                                  </Text>
+                                  {segments.length > 0 && (
+                                    <HStack gap={1.5} flexWrap="wrap">
+                                      <Button
+                                        onClick={() => setEditingTodoSegmentId("")}
+                                        size="xs"
+                                        h="28px"
+                                        px={2.5}
+                                        borderRadius="full"
+                                        bg={
+                                          editingTodoSegmentId === ""
+                                            ? "#4A5568"
+                                            : "#EDF2F7"
+                                        }
+                                        color={
+                                          editingTodoSegmentId === ""
+                                            ? "white"
+                                            : "#4A5568"
+                                        }
+                                        fontWeight="bold"
+                                      >
+                                        指定なし
+                                      </Button>
+                                      {segments.map((seg) => (
+                                        <Button
+                                          key={seg.id}
+                                          onClick={() => setEditingTodoSegmentId(seg.id)}
+                                          size="xs"
+                                          h="28px"
+                                          px={2.5}
+                                          borderRadius="full"
+                                          bg={
+                                            editingTodoSegmentId === seg.id
+                                              ? "#4299E1"
+                                              : "#EBF8FF"
+                                          }
+                                          color={
+                                            editingTodoSegmentId === seg.id
+                                              ? "white"
+                                              : "#2B6CB0"
+                                          }
+                                          fontWeight="bold"
+                                        >
+                                          {seg.name}
+                                        </Button>
+                                      ))}
+                                    </HStack>
+                                  )}
+                                </VStack>
+                              ) : (
+                                <>
+                                  {filterSegmentId === "all" && (
+                                    <Flex
+                                      onPointerDown={(e) => startTodoDrag(index, e)}
+                                      style={{ touchAction: "none" }}
+                                      cursor={isDragging ? "grabbing" : "grab"}
+                                      w="32px"
+                                      h="44px"
+                                      align="center"
+                                      justify="center"
+                                      borderRadius="lg"
+                                      bg="#EBF8FF"
+                                      color="#4299E1"
+                                      userSelect="none"
+                                      flexShrink={0}
+                                      title="ドラッグして順番をかえる"
+                                    >
+                                      <DotsSixVertical size={20} weight="bold" />
+                                    </Flex>
+                                  )}
+
+                                  <VStack align="flex-start" gap={0.5} flex={1}>
+                                    {segName && (
+                                      <Badge
+                                        bg="#EBF8FF"
+                                        color="#2B6CB0"
+                                        px={2}
+                                        py={0.5}
+                                        borderRadius="md"
+                                        fontSize="10px"
+                                        fontWeight="bold"
+                                      >
+                                        {segName}
+                                      </Badge>
+                                    )}
+                                    <Text
+                                      fontSize={{ base: "md", md: "lg" }}
+                                      fontWeight="bold"
+                                      color="#2D3748"
+                                      wordBreak="break-word"
+                                    >
+                                      {todo.title}
+                                    </Text>
+                                  </VStack>
 
                                   <HStack gap={1.5} flexShrink={0}>
                                     <Button

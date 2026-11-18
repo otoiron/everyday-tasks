@@ -65,3 +65,30 @@ export function getWeekKey(weekOffset: number): string {
   const days = getWeekDays(weekOffset);
   return days[0]?.dateKey ?? formatDateKey(new Date());
 }
+
+/**
+ * 今日から daysOffset 日後の YYYY-MM-DD を返す
+ */
+export function getOffsetDateKey(daysOffset: number): string {
+  const now = new Date();
+  const target = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + daysOffset
+  );
+  return formatDateKey(target);
+}
+
+/**
+ * YYYY-MM-DD を "M/D（曜）" 形式に変換する
+ */
+export function formatDateWithWeekday(dateKey: string): string {
+  const parts = dateKey.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) {
+    return dateKey;
+  }
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  const weekday = WEEKDAY_LABELS[date.getDay()] ?? "";
+  return `${month}/${day}（${weekday}）`;
+}

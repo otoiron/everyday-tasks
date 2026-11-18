@@ -22,6 +22,7 @@ import {
   LockOpen,
 } from "@phosphor-icons/react";
 import {
+  Segment,
   Todo,
   HistoryRecord,
   TaskTemplate,
@@ -42,6 +43,7 @@ const WEEKDAY_OPTIONS = [
 ];
 
 type AdminViewProps = {
+  segments: Segment[];
   todos: Todo[];
   history: HistoryRecord[];
   templates: TaskTemplate[];
@@ -51,9 +53,18 @@ type AdminViewProps = {
   onApproveTask: (id: string) => void;
   onUnapproveTask: (id: string) => void;
   onRejectToActive: (id: string) => void;
-  onAddTemplate: (title: string, daysOfWeek: number[], locked: boolean) => void;
+  onAddSegment: (name: string) => void;
+  onEditSegment: (id: string, name: string) => void;
+  onDeleteSegment: (id: string) => void;
+  onReorderSegments: (fromIndex: number, toIndex: number) => void;
+  onAddTemplate: (
+    title: string,
+    daysOfWeek: number[],
+    locked: boolean,
+    segmentId?: string
+  ) => void;
   onDeleteTemplate: (id: string) => void;
-  onEditTemplate: (id: string, newTitle: string) => void;
+  onEditTemplate: (id: string, newTitle: string, segmentId?: string) => void;
   onToggleTemplateLock: (id: string) => void;
   onReorderTemplates: (fromIndex: number, toIndex: number) => void;
   onApplyTodayTemplates: () => number;
@@ -65,6 +76,7 @@ type AdminViewProps = {
 };
 
 export function AdminView({
+  segments,
   todos,
   history,
   templates,
@@ -74,6 +86,10 @@ export function AdminView({
   onApproveTask,
   onUnapproveTask,
   onRejectToActive,
+  onAddSegment,
+  onEditSegment,
+  onDeleteSegment,
+  onReorderSegments,
   onAddTemplate,
   onDeleteTemplate,
   onEditTemplate,
@@ -90,12 +106,19 @@ export function AdminView({
   const [newPin, setNewPin] = useState("");
   const [pinMessage, setPinMessage] = useState("");
 
+  const [segmentNameInput, setSegmentNameInput] = useState("");
+  const [segmentMessage, setSegmentMessage] = useState("");
+  const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
+  const [editingSegmentName, setEditingSegmentName] = useState("");
+
   const [templateTitle, setTemplateTitle] = useState("");
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 0]);
   const [templateLocked, setTemplateLocked] = useState(true);
+  const [templateSegmentId, setTemplateSegmentId] = useState<string>("");
   const [templateMessage, setTemplateMessage] = useState("");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [editingTemplateTitle, setEditingTemplateTitle] = useState("");
+  const [editingTemplateSegmentId, setEditingTemplateSegmentId] = useState<string>("");
 
   const [allowanceWeekOffset, setAllowanceWeekOffset] = useState(0);
   const [allowanceInput, setAllowanceInput] = useState("");
@@ -126,12 +149,38 @@ export function AdminView({
     };
   }, [allowanceWeekDays, history]);
 
+  const segmentMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of segments) {
+      map.set(s.id, s.name);
+    }
+    return map;
+  }, [segments]);
+
+  const {
+    containerRef: segmentListRef,
+    draggingIndex: draggingSegmentIndex,
+    startDrag: startSegmentDrag,
+    getItemStyle: getSegmentItemStyle,
+  } = useDragReorder(onReorderSegments);
+
   const {
     containerRef: templateListRef,
     draggingIndex: draggingTemplateIndex,
     startDrag: startTemplateDrag,
     getItemStyle: getTemplateItemStyle,
   } = useDragReorder(onReorderTemplates);
+
+  const handleCreateSegment = () => {
+    const trimmed = segmentNameInput.trim();
+    if (!trimmed) {
+      setSegmentMessage("セグメント名を入力してください");
+      return;
+    }
+    onAddSegment(trimmed);
+    setSegmentNameInput("");
+    setSegmentMessage("セグメントを追加しました");
+  };
 
   const handleLogin = () => {
     if (pinInput === adminPin) {
@@ -179,9 +228,14 @@ export function AdminView({
       setTemplateMessage("曜日を1つ以上えらんでください");
       return;
     }
-    onAddTemplate(trimmed, selectedDays, templateLocked);
+    onAddTemplate(
+      trimmed,
+      selectedDays,
+      templateLocked,
+      templateSegmentId || undefined
+    );
     setTemplateTitle("");
-    setTemplateMessage("テンプレートを追加しました（今日の分にも反映できます）");
+    setTemplateMessage("テンプレートを追加しました");
   };
 
   const handleApplyToday = () => {
@@ -827,6 +881,209 @@ export function AdminView({
         )}
       </Box>
 
+      {/* セグメント（時間帯）管理 */}
+      <Box
+        bg="white"
+        p={{ base: 4, md: 6 }}
+        borderRadius="2xl"
+        borderWidth="2px"
+        borderColor="#CFE2FF"
+        boxShadow="0 4px 12px rgba(144, 205, 244, 0.15)"
+      >
+        <VStack align="flex-start" gap={0} mb={3}>
+          <Heading as="h2" fontSize="lg" color="#2D3748">
+            セグメント（時間帯・グループ）管理
+          </Heading>
+          <Text fontSize="xs" color="#718096">
+            「朝やること」「学校から帰ってからやること」などのグループを作成・並び替えできます
+          </Text>
+        </VStack>
+
+        <Flex direction={{ base: "column", sm: "row" }} gap={2.5} mb={4}>
+          <Input
+            value={segmentNameInput}
+            onChange={(e) => {
+              setSegmentNameInput(e.target.value);
+              if (segmentMessage) setSegmentMessage("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                handleCreateSegment();
+              }
+            }}
+            placeholder="新しいセグメント名（例：夕方、習い事の前）"
+            h="46px"
+            bg="#F8FAFC"
+            borderWidth="2px"
+            borderColor="#CBD5E0"
+            borderRadius="xl"
+          />
+          <Button
+            onClick={handleCreateSegment}
+            h="46px"
+            px={6}
+            borderRadius="xl"
+            bg="#4299E1"
+            color="white"
+            fontWeight="bold"
+            _hover={{ bg: "#3182CE" }}
+            flexShrink={0}
+          >
+            追加
+          </Button>
+        </Flex>
+
+        {segmentMessage && (
+          <Text mb={3} fontSize="xs" fontWeight="bold" color="#2B6CB0">
+            {segmentMessage}
+          </Text>
+        )}
+
+        {segments.length === 0 ? (
+          <Text fontSize="sm" color="#718096" textAlign="center" py={2}>
+            セグメントはまだありません
+          </Text>
+        ) : (
+          <VStack ref={segmentListRef} gap={2} align="stretch">
+            {segments.map((seg, index) => {
+              const isDragging = draggingSegmentIndex === index;
+              const isEditing = editingSegmentId === seg.id;
+              return (
+                <Flex
+                  key={seg.id}
+                  style={getSegmentItemStyle(index)}
+                  align="center"
+                  justify="space-between"
+                  gap={2.5}
+                  p={3}
+                  bg={isDragging ? "#FFFBF5" : "#F8FBFF"}
+                  borderRadius="xl"
+                  borderWidth={isEditing || isDragging ? "2px" : "1px"}
+                  borderColor={
+                    isEditing ? "#4299E1" : isDragging ? "#F6AD55" : "#BEE3F8"
+                  }
+                  boxShadow={isDragging ? "0 8px 20px rgba(43, 108, 176, 0.2)" : "none"}
+                >
+                  {isEditing ? (
+                    <>
+                      <Input
+                        value={editingSegmentName}
+                        onChange={(e) => setEditingSegmentName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                            if (editingSegmentName.trim()) {
+                              onEditSegment(seg.id, editingSegmentName.trim());
+                              setEditingSegmentId(null);
+                              setEditingSegmentName("");
+                            }
+                          } else if (e.key === "Escape") {
+                            setEditingSegmentId(null);
+                            setEditingSegmentName("");
+                          }
+                        }}
+                        autoFocus
+                        h="38px"
+                        bg="white"
+                        borderWidth="2px"
+                        borderColor="#63B3ED"
+                        borderRadius="lg"
+                        flex={1}
+                      />
+                      <HStack gap={1.5} flexShrink={0}>
+                        <Button
+                          onClick={() => {
+                            if (!editingSegmentName.trim()) return;
+                            onEditSegment(seg.id, editingSegmentName.trim());
+                            setEditingSegmentId(null);
+                            setEditingSegmentName("");
+                          }}
+                          disabled={!editingSegmentName.trim()}
+                          w="36px"
+                          h="36px"
+                          p={0}
+                          borderRadius="lg"
+                          bg="#4299E1"
+                          color="white"
+                        >
+                          <Check size={16} weight="bold" />
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setEditingSegmentId(null);
+                            setEditingSegmentName("");
+                          }}
+                          w="36px"
+                          h="36px"
+                          p={0}
+                          borderRadius="lg"
+                          bg="#EDF2F7"
+                          color="#4A5568"
+                        >
+                          <X size={16} weight="bold" />
+                        </Button>
+                      </HStack>
+                    </>
+                  ) : (
+                    <>
+                      <Flex
+                        onPointerDown={(e) => startSegmentDrag(index, e)}
+                        style={{ touchAction: "none" }}
+                        cursor={isDragging ? "grabbing" : "grab"}
+                        w="30px"
+                        h="36px"
+                        align="center"
+                        justify="center"
+                        borderRadius="lg"
+                        bg="#EBF8FF"
+                        color="#4299E1"
+                        userSelect="none"
+                        flexShrink={0}
+                      >
+                        <DotsSixVertical size={18} weight="bold" />
+                      </Flex>
+                      <Text fontSize="md" fontWeight="bold" color="#2D3748" flex={1}>
+                        {seg.name}
+                      </Text>
+                      <HStack gap={1.5} flexShrink={0}>
+                        <Button
+                          onClick={() => {
+                            setEditingSegmentId(seg.id);
+                            setEditingSegmentName(seg.name);
+                          }}
+                          w="36px"
+                          h="36px"
+                          p={0}
+                          borderRadius="lg"
+                          bg="#EBF8FF"
+                          color="#2B6CB0"
+                          _hover={{ bg: "#BEE3F8" }}
+                          title="編集"
+                        >
+                          <PencilSimple size={16} weight="bold" />
+                        </Button>
+                        <Button
+                          onClick={() => onDeleteSegment(seg.id)}
+                          w="36px"
+                          h="36px"
+                          p={0}
+                          borderRadius="lg"
+                          bg="#EDF2F7"
+                          color="#4A5568"
+                          _hover={{ bg: "#FED7D7", color: "#9B2C2C" }}
+                          title="削除"
+                        >
+                          <Trash size={16} weight="bold" />
+                        </Button>
+                      </HStack>
+                    </>
+                  )}
+                </Flex>
+              );
+            })}
+          </VStack>
+        )}
+      </Box>
+
       {/* 曜日ごとのタスクテンプレート設定 */}
       <Box
         bg="white"
@@ -960,6 +1217,38 @@ export function AdminView({
             </HStack>
           </Flex>
 
+          {segments.length > 0 && (
+            <HStack gap={1.5} flexWrap="wrap">
+              <Button
+                onClick={() => setTemplateSegmentId("")}
+                size="xs"
+                h="30px"
+                px={2.5}
+                borderRadius="full"
+                bg={templateSegmentId === "" ? "#4A5568" : "#EDF2F7"}
+                color={templateSegmentId === "" ? "white" : "#4A5568"}
+                fontWeight="bold"
+              >
+                セグメントなし
+              </Button>
+              {segments.map((seg) => (
+                <Button
+                  key={seg.id}
+                  onClick={() => setTemplateSegmentId(seg.id)}
+                  size="xs"
+                  h="30px"
+                  px={2.5}
+                  borderRadius="full"
+                  bg={templateSegmentId === seg.id ? "#4299E1" : "#EBF8FF"}
+                  color={templateSegmentId === seg.id ? "white" : "#2B6CB0"}
+                  fontWeight="bold"
+                >
+                  {seg.name}
+                </Button>
+              ))}
+            </HStack>
+          )}
+
           <Flex justify="space-between" align="center" flexWrap="wrap" gap={2}>
             <Button
               onClick={() => setTemplateLocked((prev) => !prev)}
@@ -1034,70 +1323,128 @@ export function AdminView({
                   boxShadow={isDragging ? "0 12px 28px rgba(43, 108, 176, 0.25)" : "none"}
                 >
                   {isEditing ? (
-                    <>
-                      <Input
-                        value={editingTemplateTitle}
-                        onChange={(e) => setEditingTemplateTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-                            if (editingTemplateTitle.trim()) {
-                              onEditTemplate(tpl.id, editingTemplateTitle);
+                    <VStack gap={2} flex={1} w="full" align="stretch">
+                      <Flex gap={2} align="center">
+                        <Input
+                          value={editingTemplateTitle}
+                          onChange={(e) => setEditingTemplateTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                              if (editingTemplateTitle.trim()) {
+                                onEditTemplate(
+                                  tpl.id,
+                                  editingTemplateTitle,
+                                  editingTemplateSegmentId || undefined
+                                );
+                                setEditingTemplateId(null);
+                                setEditingTemplateTitle("");
+                                setEditingTemplateSegmentId("");
+                              }
+                            } else if (e.key === "Escape") {
                               setEditingTemplateId(null);
                               setEditingTemplateTitle("");
+                              setEditingTemplateSegmentId("");
                             }
-                          } else if (e.key === "Escape") {
-                            setEditingTemplateId(null);
-                            setEditingTemplateTitle("");
-                          }
-                        }}
-                        autoFocus
-                        h="40px"
-                        bg="white"
-                        borderWidth="2px"
-                        borderColor="#63B3ED"
-                        borderRadius="lg"
-                        flex={1}
-                      />
-                      <HStack gap={1.5} flexShrink={0}>
-                        <Button
-                          onClick={() => {
-                            if (!editingTemplateTitle.trim()) return;
-                            onEditTemplate(tpl.id, editingTemplateTitle);
-                            setEditingTemplateId(null);
-                            setEditingTemplateTitle("");
                           }}
-                          disabled={!editingTemplateTitle.trim()}
-                          w="38px"
-                          h="38px"
-                          p={0}
+                          autoFocus
+                          h="40px"
+                          bg="white"
+                          borderWidth="2px"
+                          borderColor="#63B3ED"
                           borderRadius="lg"
-                          bg="#4299E1"
-                          color="white"
-                          _hover={{ bg: "#3182CE" }}
-                          aria-label="保存"
-                          title="保存"
-                        >
-                          <Check size={18} weight="bold" />
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            setEditingTemplateId(null);
-                            setEditingTemplateTitle("");
-                          }}
-                          w="38px"
-                          h="38px"
-                          p={0}
-                          borderRadius="lg"
-                          bg="#EDF2F7"
-                          color="#4A5568"
-                          _hover={{ bg: "#E2E8F0" }}
-                          aria-label="取消"
-                          title="取消"
-                        >
-                          <X size={18} weight="bold" />
-                        </Button>
-                      </HStack>
-                    </>
+                          flex={1}
+                        />
+                        <HStack gap={1.5} flexShrink={0}>
+                          <Button
+                            onClick={() => {
+                              if (!editingTemplateTitle.trim()) return;
+                              onEditTemplate(
+                                tpl.id,
+                                editingTemplateTitle,
+                                editingTemplateSegmentId || undefined
+                              );
+                              setEditingTemplateId(null);
+                              setEditingTemplateTitle("");
+                              setEditingTemplateSegmentId("");
+                            }}
+                            disabled={!editingTemplateTitle.trim()}
+                            w="38px"
+                            h="38px"
+                            p={0}
+                            borderRadius="lg"
+                            bg="#4299E1"
+                            color="white"
+                            _hover={{ bg: "#3182CE" }}
+                            aria-label="保存"
+                            title="保存"
+                          >
+                            <Check size={18} weight="bold" />
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              setEditingTemplateId(null);
+                              setEditingTemplateTitle("");
+                              setEditingTemplateSegmentId("");
+                            }}
+                            w="38px"
+                            h="38px"
+                            p={0}
+                            borderRadius="lg"
+                            bg="#EDF2F7"
+                            color="#4A5568"
+                            _hover={{ bg: "#E2E8F0" }}
+                            aria-label="取消"
+                            title="取消"
+                          >
+                            <X size={18} weight="bold" />
+                          </Button>
+                        </HStack>
+                      </Flex>
+
+                      {segments.length > 0 && (
+                        <HStack gap={1.5} flexWrap="wrap">
+                          <Button
+                            onClick={() => setEditingTemplateSegmentId("")}
+                            size="xs"
+                            h="28px"
+                            px={2.5}
+                            borderRadius="full"
+                            bg={
+                              editingTemplateSegmentId === "" ? "#4A5568" : "#EDF2F7"
+                            }
+                            color={
+                              editingTemplateSegmentId === "" ? "white" : "#4A5568"
+                            }
+                            fontWeight="bold"
+                          >
+                            セグメントなし
+                          </Button>
+                          {segments.map((seg) => (
+                            <Button
+                              key={seg.id}
+                              onClick={() => setEditingTemplateSegmentId(seg.id)}
+                              size="xs"
+                              h="28px"
+                              px={2.5}
+                              borderRadius="full"
+                              bg={
+                                editingTemplateSegmentId === seg.id
+                                  ? "#4299E1"
+                                  : "#EBF8FF"
+                              }
+                              color={
+                                editingTemplateSegmentId === seg.id
+                                  ? "white"
+                                  : "#2B6CB0"
+                              }
+                              fontWeight="bold"
+                            >
+                              {seg.name}
+                            </Button>
+                          ))}
+                        </HStack>
+                      )}
+                    </VStack>
                   ) : (
                     <>
                       <Flex
@@ -1123,6 +1470,19 @@ export function AdminView({
                           <Text fontSize="md" fontWeight="bold" color="#2D3748" wordBreak="break-word">
                             {tpl.title}
                           </Text>
+                          {tpl.segmentId && segmentMap.get(tpl.segmentId) && (
+                            <Badge
+                              bg="#EDF2F7"
+                              color="#4A5568"
+                              px={2}
+                              py={0.5}
+                              borderRadius="full"
+                              fontSize="10px"
+                              fontWeight="bold"
+                            >
+                              {segmentMap.get(tpl.segmentId)}
+                            </Badge>
+                          )}
                           {tpl.locked && (
                             <Badge
                               bg="#FFF3E0"
@@ -1178,6 +1538,7 @@ export function AdminView({
                           onClick={() => {
                             setEditingTemplateId(tpl.id);
                             setEditingTemplateTitle(tpl.title);
+                            setEditingTemplateSegmentId(tpl.segmentId ?? "");
                           }}
                           w="38px"
                           h="38px"

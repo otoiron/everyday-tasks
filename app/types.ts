@@ -1,3 +1,8 @@
+export type Segment = {
+  id: string;
+  name: string;
+};
+
 export type Todo = {
   id: string;
   title: string;
@@ -7,6 +12,8 @@ export type Todo = {
   parentChecked?: boolean;
   parentCheckedAt?: number;
   locked?: boolean;
+  segmentId?: string;
+  targetDate?: string; // YYYY-MM-DD（未指定なら当日扱い）
 };
 
 export type HistoryRecord = {
@@ -23,6 +30,7 @@ export type TaskTemplate = {
   title: string;
   daysOfWeek: number[]; // 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
   locked?: boolean;
+  segmentId?: string;
 };
 
 export type WeeklyAllowanceEntry = {
