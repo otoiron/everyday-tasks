@@ -3,7 +3,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "できたよ！TODOリスト",
-  description: "じぶんでやることを管理できるキッズ向けTODOアプリ",
+  description: "自分でやることを管理できるキッズ向けTODOアプリ",
 };
 
 export default function RootLayout({

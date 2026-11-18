@@ -136,6 +136,7 @@ export default function HomePage() {
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTodoTitle, setEditingTodoTitle] = useState("");
   const [completingIds, setCompletingIds] = useState<string[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   const isSyncingRef = useRef(false);
@@ -232,7 +233,6 @@ export default function HomePage() {
       // 日付が変わっていたら、前日以前に完了済みのタスクを「できた！リスト」から自動整理（履歴は保持）
       const now = new Date();
       const todayKey = formatDateKey(now);
-      const todayDay = now.getDay();
 
       const outdatedCompletedIds: string[] = [];
       currentTodos = currentTodos.filter((t) => {
@@ -246,37 +246,6 @@ export default function HomePage() {
       });
       if (outdatedCompletedIds.length > 0) {
         await deleteTodoRows(outdatedCompletedIds);
-      }
-
-      // 今日の曜日に該当する未適用テンプレートを自動追加
-      const appliedIdsForToday =
-        currentApplied && currentApplied.dateKey === todayKey
-          ? currentApplied.templateIds
-          : [];
-      const appliedSet = new Set(appliedIdsForToday);
-      const templatesToApply = currentTemplates.filter(
-        (tpl) => tpl.daysOfWeek.includes(todayDay) && !appliedSet.has(tpl.id)
-      );
-
-      if (templatesToApply.length > 0) {
-        const newTodosFromTemplates: Todo[] = templatesToApply.map((tpl, idx) => ({
-          id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-          title: tpl.title,
-          completed: false,
-          createdAt: Date.now(),
-          locked: Boolean(tpl.locked),
-        }));
-        currentTodos = [...newTodosFromTemplates, ...currentTodos];
-        const nextApplied: AppliedTemplatesState = {
-          dateKey: todayKey,
-          templateIds: [...appliedIdsForToday, ...templatesToApply.map((tpl) => tpl.id)],
-        };
-        currentApplied = nextApplied;
-
-        await Promise.all([
-          upsertTodosList(currentTodos),
-          upsertSettingRow("applied_templates", JSON.stringify(nextApplied)),
-        ]);
       }
 
       setTodos(currentTodos);
@@ -611,20 +580,27 @@ export default function HomePage() {
     getItemStyle: getTodoItemStyle,
   } = useDragReorder(handleReorderActiveTodos);
 
-  // 今日の曜日に一致する未適用テンプレートを今すぐタスクへ追加
-  const handleApplyTodayTemplates = (): number => {
-    const now = new Date();
-    const todayKey = formatDateKey(now);
-    const todayDay = now.getDay();
+  // テンプレートから1件タスクを手動追加
+  const handleAddTodoFromTemplate = (tpl: TaskTemplate) => {
+    const newTodo: Todo = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title: tpl.title,
+      completed: false,
+      createdAt: Date.now(),
+      locked: Boolean(tpl.locked),
+    };
+    const nextTodos = [newTodo, ...todos];
+    setTodos(nextTodos);
+    void upsertTodosList(nextTodos);
+  };
 
-    const appliedIdsForToday =
-      appliedTemplates && appliedTemplates.dateKey === todayKey
-        ? appliedTemplates.templateIds
-        : [];
-    const appliedSet = new Set(appliedIdsForToday);
+  // 今日の曜日に一致するテンプレートを手動でまとめて追加（すでにリストにあるタイトルはスキップ）
+  const handleApplyTodayTemplates = (): number => {
+    const todayDay = new Date().getDay();
+    const existingTitles = new Set(todos.map((t) => t.title));
 
     const templatesToApply = templates.filter(
-      (tpl) => tpl.daysOfWeek.includes(todayDay) && !appliedSet.has(tpl.id)
+      (tpl) => tpl.daysOfWeek.includes(todayDay) && !existingTitles.has(tpl.title)
     );
 
     if (templatesToApply.length === 0) {
@@ -640,16 +616,8 @@ export default function HomePage() {
     }));
 
     const nextTodos = [...newTodos, ...todos];
-    const nextApplied: AppliedTemplatesState = {
-      dateKey: todayKey,
-      templateIds: [...appliedIdsForToday, ...templatesToApply.map((tpl) => tpl.id)],
-    };
-
     setTodos(nextTodos);
-    setAppliedTemplates(nextApplied);
-
     void upsertTodosList(nextTodos);
-    void upsertSettingRow("applied_templates", JSON.stringify(nextApplied));
 
     return templatesToApply.length;
   };
@@ -689,7 +657,7 @@ export default function HomePage() {
                 }}
                 fontWeight="bold"
               >
-                {activeTab === "admin" ? "子供画面へ" : "おうちの人用"}
+                {activeTab === "admin" ? "子ども画面へ" : "おうちの人用"}
               </Button>
             </Flex>
 
@@ -700,7 +668,7 @@ export default function HomePage() {
               fontWeight="bold"
               mb={3}
             >
-              きょうの やることリスト
+              今日のやることリスト
             </Heading>
             <HStack justify="center" gap={3} flexWrap="wrap">
               <Badge
@@ -712,7 +680,7 @@ export default function HomePage() {
                 fontSize="sm"
                 fontWeight="bold"
               >
-                やること: {isMounted ? activeTodos.length : 0}こ
+                やること: {isMounted ? activeTodos.length : 0}個
               </Badge>
               <Badge
                 px={3}
@@ -723,7 +691,7 @@ export default function HomePage() {
                 fontSize="sm"
                 fontWeight="bold"
               >
-                できた！: {isMounted ? completedTodos.length : 0}こ
+                できた！: {isMounted ? completedTodos.length : 0}個
               </Badge>
               <Badge
                 px={3}
@@ -734,7 +702,7 @@ export default function HomePage() {
                 fontSize="sm"
                 fontWeight="bold"
               >
-                こんしゅうの おこづかい: {currentWeekAllowance.toLocaleString()}円
+                今週のおこづかい: {currentWeekAllowance.toLocaleString()}円
                 {currentWeekAllowancePaid ? "（わたしたよ！）" : ""}
               </Badge>
             </HStack>
@@ -758,7 +726,7 @@ export default function HomePage() {
                   bg: activeTab === "tasks" ? "#4299E1" : "#EBF8FF",
                 }}
               >
-                きょうの やること
+                今日のやること
               </Button>
               <Button
                 onClick={() => setActiveTab("history")}
@@ -775,7 +743,7 @@ export default function HomePage() {
                   bg: activeTab === "history" ? "#ED8936" : "#FFF8F0",
                 }}
               >
-                これまでの きろく
+                これまでの記録
               </Button>
             </HStack>
           )}
@@ -812,7 +780,7 @@ export default function HomePage() {
                 borderColor="#CFE2FF"
                 textAlign="center"
               >
-                <Text color="#718096">じゅんび中...</Text>
+                <Text color="#718096">読み込み中...</Text>
               </Box>
             )
           ) : (
@@ -835,7 +803,7 @@ export default function HomePage() {
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="やることを かいてね（例：しゅくだい）"
+                    placeholder="やることを書いてね（例：宿題）"
                     size="lg"
                     h="56px"
                     fontSize={{ base: "md", md: "lg" }}
@@ -869,9 +837,78 @@ export default function HomePage() {
                     }}
                     flexShrink={0}
                   >
-                    ついか！
+                    追加！
                   </Button>
                 </Flex>
+
+                {isMounted && templates.length > 0 && (
+                  <Box mt={3} pt={3} borderTopWidth="1px" borderColor="#EDF2F7">
+                    <Flex justify="space-between" align="center" gap={2} flexWrap="wrap">
+                      <Button
+                        onClick={() => setShowTemplatePicker((prev) => !prev)}
+                        size="sm"
+                        h="38px"
+                        px={4}
+                        borderRadius="xl"
+                        bg={showTemplatePicker ? "#4299E1" : "#EBF8FF"}
+                        color={showTemplatePicker ? "white" : "#2B6CB0"}
+                        fontWeight="bold"
+                        _hover={{
+                          bg: showTemplatePicker ? "#3182CE" : "#BEE3F8",
+                        }}
+                      >
+                        {showTemplatePicker
+                          ? "テンプレートをとじる"
+                          : `テンプレートから追加（${templates.length}個）`}
+                      </Button>
+
+                      <Button
+                        onClick={() => {
+                          handleApplyTodayTemplates();
+                        }}
+                        size="sm"
+                        h="38px"
+                        px={4}
+                        borderRadius="xl"
+                        bg="#FFF3E0"
+                        color="#C05621"
+                        fontWeight="bold"
+                        borderWidth="1px"
+                        borderColor="#FBD38D"
+                        _hover={{ bg: "#FEEBC8" }}
+                      >
+                        今日の分をまとめて追加
+                      </Button>
+                    </Flex>
+
+                    {showTemplatePicker && (
+                      <Flex mt={3} gap={2} flexWrap="wrap">
+                        {templates.map((tpl) => {
+                          const alreadyAdded = todos.some((t) => t.title === tpl.title);
+                          return (
+                            <Button
+                              key={tpl.id}
+                              onClick={() => handleAddTodoFromTemplate(tpl)}
+                              h="40px"
+                              px={3.5}
+                              fontSize="sm"
+                              fontWeight="bold"
+                              borderRadius="xl"
+                              borderWidth="1px"
+                              borderColor={alreadyAdded ? "#CBD5E0" : "#BEE3F8"}
+                              bg={alreadyAdded ? "#F7FAFC" : "#F8FBFF"}
+                              color={alreadyAdded ? "#718096" : "#2B6CB0"}
+                              _hover={{ bg: "#EBF8FF" }}
+                            >
+                              + {tpl.title}
+                              {alreadyAdded ? "（追加ずみ）" : ""}
+                            </Button>
+                          );
+                        })}
+                      </Flex>
+                    )}
+                  </Box>
+                )}
               </Box>
 
               {/* やることリスト */}
@@ -884,7 +921,7 @@ export default function HomePage() {
                 boxShadow="0 4px 12px rgba(144, 205, 244, 0.15)"
               >
                 <Heading as="h2" fontSize="xl" color="#2D3748" mb={4}>
-                  これから やること
+                  これからやること
                 </Heading>
 
                 {!isMounted ? (
@@ -898,7 +935,7 @@ export default function HomePage() {
                     borderColor="#E2E8F0"
                   >
                     <Text fontSize="md" color="#718096">
-                      じゅんび中...
+                      読み込み中...
                     </Text>
                   </Box>
                 ) : activeTodos.length === 0 ? (
@@ -913,8 +950,8 @@ export default function HomePage() {
                   >
                     <Text fontSize="lg" color="#4A5568" fontWeight="medium">
                       {completedTodos.length > 0
-                        ? "ぜんぶ おわったよ！すごいね！"
-                        : "やることを ついかしてみよう！"}
+                        ? "全部終わったよ！すごいね！"
+                        : "やることを追加してみよう！"}
                     </Text>
                   </Box>
                 ) : (
@@ -1141,7 +1178,7 @@ export default function HomePage() {
                         color="#4A5568"
                         _hover={{ bg: "#E2E8F0" }}
                       >
-                        できたのを ぜんぶけす
+                        できたのを全部消す
                       </Button>
                     )}
                   </Flex>
@@ -1269,7 +1306,7 @@ export default function HomePage() {
           >
             <VStack gap={4} align="stretch">
               <Heading as="h3" fontSize="xl" color="#2D3748">
-                ほんとうに けしますか？
+                本当に消しますか？
               </Heading>
 
               {deleteTarget.type === "single" ? (
@@ -1291,10 +1328,10 @@ export default function HomePage() {
                 </Box>
               ) : (
                 <Text fontSize="md" color="#4A5568">
-                  できた！リストの タスクを ぜんぶ けします。
+                  できた！リストのタスクを全部消します。
                   <br />
                   <Text as="span" fontSize="sm" color="#718096">
-                    （※「これまでの きろく」は のこるよ）
+                    （※「これまでの記録」は残るよ）
                   </Text>
                 </Text>
               )}
@@ -1325,7 +1362,7 @@ export default function HomePage() {
                   _hover={{ bg: "#F56565" }}
                   _active={{ bg: "#E53E3E" }}
                 >
-                  けす
+                  消す
                 </Button>
               </HStack>
             </VStack>

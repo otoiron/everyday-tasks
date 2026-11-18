@@ -839,10 +839,10 @@ export function AdminView({
         <Flex justify="space-between" align="center" mb={3} gap={2} flexWrap="wrap">
           <VStack align="flex-start" gap={0}>
             <Heading as="h2" fontSize="lg" color="#2D3748">
-              曜日ごとの自動タスク（テンプレート）
+              曜日ごとの定型タスク（テンプレート）
             </Heading>
             <Text fontSize="xs" color="#718096">
-              登録した曜日にアプリを開くと自動で「これから やること」に追加されます
+              トップ画面の「テンプレートから ついか」や「きょうの分を まとめてついか」から手動で追加できます
             </Text>
           </VStack>
           <Button

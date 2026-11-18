@@ -95,16 +95,16 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             color="#2B6CB0"
             _hover={{ bg: "#BEE3F8" }}
           >
-            ◀ まえの週
+            ◀ 前の週
           </Button>
 
           <VStack gap={0} textAlign="center">
             <Text fontSize="xs" fontWeight="bold" color="#718096">
               {weekOffset === 0
-                ? "こんしゅう"
+                ? "今週"
                 : weekOffset === -1
-                ? "せんしゅう"
-                : `${Math.abs(weekOffset)}しゅうまえ`}
+                ? "先週"
+                : `${Math.abs(weekOffset)}週前`}
             </Text>
             <Text fontSize={{ base: "sm", md: "md" }} fontWeight="bold" color="#2D3748">
               {formatWeekRange(weekDays)}
@@ -128,7 +128,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
               cursor: "not-allowed",
             }}
           >
-            つぎの週 ▶
+            次の週 ▶
           </Button>
         </Flex>
 
@@ -143,12 +143,12 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             textAlign="center"
           >
             <Text fontSize="xs" fontWeight="bold" color="#9C4221">
-              この1しゅうかんで できた数
+              この1週間でできた数
             </Text>
             <Text fontSize={{ base: "2xl", md: "2xl" }} fontWeight="bold" color="#DD6B20">
               {weekStats.total}
               <Text as="span" fontSize="sm" ml={1}>
-                こ
+                個
               </Text>
             </Text>
           </Box>
@@ -162,7 +162,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             textAlign="center"
           >
             <Text fontSize="xs" fontWeight="bold" color="#276749">
-              この1しゅうかんの おこづかい
+              この1週間のおこづかい
             </Text>
             <Text fontSize={{ base: "2xl", md: "2xl" }} fontWeight="bold" color="#2F855A">
               {weekAllowance.toLocaleString()}
@@ -195,12 +195,12 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             textAlign="center"
           >
             <Text fontSize="xs" fontWeight="bold" color="#2B6CB0">
-              これまで ぜんぶで できた数
+              これまで全部でできた数
             </Text>
             <Text fontSize={{ base: "2xl", md: "2xl" }} fontWeight="bold" color="#3182CE">
               {history.length}
               <Text as="span" fontSize="sm" ml={1}>
-                こ
+                個
               </Text>
             </Text>
           </Box>
@@ -216,7 +216,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             mb={5}
           >
             <Text fontSize="xs" fontWeight="bold" color="#C05621" mb={0.5}>
-              おうちの人からの ひと言メモ
+              おうちの人からのひと言メモ
             </Text>
             <Text fontSize="sm" color="#2D3748" fontWeight="medium" wordBreak="break-word">
               {weekAllowanceNote}
@@ -226,7 +226,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
 
         {/* 日毎の達成バーグラフ（7日間） */}
         <Text fontSize="xs" color="#718096" mb={2} textAlign="center">
-          ひにちを タップすると その日に できたことが 見られるよ
+          日にちをタップすると、その日にできたことが見られるよ
         </Text>
         <SimpleGrid columns={7} gap={{ base: 1.5, md: 3 }}>
           {weekDays.map((day) => {
@@ -303,7 +303,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
                     fontWeight="bold"
                     color={count > 0 ? "#DD6B20" : "#A0AEC0"}
                   >
-                    {count}こ
+                    {count}個
                   </Text>
                 </button>
               </Box>
@@ -324,7 +324,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
         <Flex justify="space-between" align="center" mb={4} gap={2} flexWrap="wrap">
           <HStack gap={2}>
             <Heading as="h2" fontSize={{ base: "lg", md: "xl" }} color="#2D3748">
-              {selectedDayInfo.monthDay}（{selectedDayInfo.weekdayLabel}）に できたこと
+              {selectedDayInfo.monthDay}（{selectedDayInfo.weekdayLabel}）にできたこと
             </Heading>
             {selectedDayInfo.isToday && (
               <Badge
@@ -336,7 +336,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
                 fontSize="xs"
                 fontWeight="bold"
               >
-                きょう
+                今日
               </Badge>
             )}
           </HStack>
@@ -350,7 +350,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             fontSize="sm"
             fontWeight="bold"
           >
-            {selectedRecords.length}こ できた！
+            {selectedRecords.length}個 できた！
           </Badge>
         </Flex>
 
@@ -365,7 +365,7 @@ export function HistoryView({ history, weeklyAllowances }: HistoryViewProps) {
             borderColor="#CBD5E0"
           >
             <Text fontSize="md" color="#718096">
-              この日に できたことの きろくは まだないよ
+              この日にできたことの記録はまだないよ
             </Text>
           </Box>
         ) : (
