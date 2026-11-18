@@ -1,12 +1,18 @@
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function getJstDateObject(date: Date): Date {
+  return new Date(date.getTime() + JST_OFFSET_MS);
+}
 
 /**
- * ローカルタイムゾーンで YYYY-MM-DD 形式の日付キーを返す
+ * 日本時間（JST / UTC+9）固定で YYYY-MM-DD 形式の日付キーを返す
  */
 export function formatDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const jst = getJstDateObject(date);
+  const year = jst.getUTCFullYear();
+  const month = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(jst.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -19,30 +25,33 @@ export type WeekDayInfo = {
 };
 
 /**
- * weekOffset (0 = 今週, -1 = 先週, ...) に基づき、月曜〜日曜の7日間を返す
+ * weekOffset (0 = 今週, -1 = 先週, ...) に基づき、日本時間基準で月曜〜日曜の7日間を返す
  */
 export function getWeekDays(weekOffset: number): WeekDayInfo[] {
-  const now = new Date();
-  const todayKey = formatDateKey(now);
+  const nowJst = getJstDateObject(new Date());
+  const todayKey = formatDateKey(new Date());
 
-  // 月曜始まりにするための差分計算 (日曜=0 -> 6, 月曜=1 -> 0, ...)
-  const dayOfWeek = now.getDay();
+  // 月曜始まりにするための差分計算 (日曜=0 -> -6, 月曜=1 -> 0, ...)
+  const dayOfWeek = nowJst.getUTCDay();
   const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
 
-  const monday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + diffToMonday + weekOffset * 7
+  const baseUtcMs = Date.UTC(
+    nowJst.getUTCFullYear(),
+    nowJst.getUTCMonth(),
+    nowJst.getUTCDate() + diffToMonday + weekOffset * 7
   );
 
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
-    const dateKey = formatDateKey(d);
+    const jstDay = new Date(baseUtcMs + i * 24 * 60 * 60 * 1000);
+    const year = jstDay.getUTCFullYear();
+    const month = jstDay.getUTCMonth() + 1;
+    const day = jstDay.getUTCDate();
+    const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     return {
-      date: d,
+      date: new Date(jstDay.getTime() - JST_OFFSET_MS),
       dateKey,
-      monthDay: `${d.getMonth() + 1}/${d.getDate()}`,
-      weekdayLabel: WEEKDAY_LABELS[d.getDay()],
+      monthDay: `${month}/${day}`,
+      weekdayLabel: WEEKDAY_LABELS[jstDay.getUTCDay()],
       isToday: dateKey === todayKey,
     };
   });
@@ -67,16 +76,21 @@ export function getWeekKey(weekOffset: number): string {
 }
 
 /**
- * 今日から daysOffset 日後の YYYY-MM-DD を返す
+ * 日本時間基準で今日から daysOffset 日後の YYYY-MM-DD を返す
  */
 export function getOffsetDateKey(daysOffset: number): string {
-  const now = new Date();
+  const nowJst = getJstDateObject(new Date());
   const target = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + daysOffset
+    Date.UTC(
+      nowJst.getUTCFullYear(),
+      nowJst.getUTCMonth(),
+      nowJst.getUTCDate() + daysOffset
+    )
   );
-  return formatDateKey(target);
+  const year = target.getUTCFullYear();
+  const month = String(target.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(target.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -88,7 +102,7 @@ export function formatDateWithWeekday(dateKey: string): string {
     return dateKey;
   }
   const [year, month, day] = parts;
-  const date = new Date(year, month - 1, day);
-  const weekday = WEEKDAY_LABELS[date.getDay()] ?? "";
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekday = WEEKDAY_LABELS[date.getUTCDay()] ?? "";
   return `${month}/${day}（${weekday}）`;
 }

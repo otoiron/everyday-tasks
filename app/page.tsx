@@ -239,24 +239,6 @@ export default function HomePage() {
         await upsertHistoryRows(migratedRecords);
       }
 
-      // 日付が変わっていたら、前日以前に完了済みのタスクを「できた！リスト」から自動整理（履歴は保持）
-      const now = new Date();
-      const todayKey = formatDateKey(now);
-
-      const outdatedCompletedIds: string[] = [];
-      currentTodos = currentTodos.filter((t) => {
-        if (!t.completed) return true;
-        const completedDateKey = formatDateKey(new Date(t.completedAt ?? t.createdAt));
-        if (completedDateKey !== todayKey) {
-          outdatedCompletedIds.push(t.id);
-          return false;
-        }
-        return true;
-      });
-      if (outdatedCompletedIds.length > 0) {
-        await deleteTodoRows(outdatedCompletedIds);
-      }
-
       setSegments(dbData.segments);
       setTodos(currentTodos);
       setHistory(currentHistory);
@@ -733,7 +715,10 @@ export default function HomePage() {
       ? activeTodos
       : activeTodos.filter((todo) => todo.segmentId === filterSegmentId);
   const completedTodos = todos.filter(
-    (todo) => todo.completed && (!todo.targetDate || todo.targetDate <= todayKey)
+    (todo) =>
+      todo.completed &&
+      (!todo.targetDate || todo.targetDate <= todayKey) &&
+      formatDateKey(new Date(todo.completedAt ?? todo.createdAt)) === todayKey
   );
   const scheduledTodosCount = todos.filter(
     (todo) => !todo.completed && todo.targetDate && todo.targetDate > todayKey
